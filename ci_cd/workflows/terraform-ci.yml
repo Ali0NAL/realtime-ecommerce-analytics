@@ -1,28 +1,62 @@
+name: Terraform CI
+
+# Yalnızca infra/ altındaki değişikliklerde tetiklensin
+on:
+  push:
+    paths:
+      - infra/**
+  pull_request:
+    paths:
+      - infra/**
+
 jobs:
   terraform:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
 
+    # Tüm run adımlarını infra/ klasöründe çalıştır
+    defaults:
+      run:
+        working-directory: infra
+
+    steps:
+      # 1. Repoyu klonla
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # 2. GCP kimlik doğrulaması
       - name: Authenticate to GCP
         uses: google-github-actions/setup-gcloud@v1
         with:
           service_account_key: ${{ secrets.GCP_SA_KEY }}
-          project_id:        ${{ secrets.GCP_PROJECT }}
+          project_id:          ${{ secrets.GCP_PROJECT }}
 
+      # 3. Terraform CLI’yı hazırla
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
 
+      # 4. Terraform init (GCS backend ayarıyla)
       - name: Terraform Init
-        working-directory: infra           # ← burayı ekle
-        run: terraform init \
-               -backend-config="bucket=${{ secrets.GCP_PROJECT }}-raw" \
-               -backend-config="prefix=tfstate"
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.GCP_PROJECT }}-raw" \
+            -backend-config="prefix=tfstate"
 
-      - name: Terraform Format Check
-        working-directory: infra           # ← burayı ekle
+      # 5. Kod formatını kontrol et
+      - name: Terraform Fmt Check
         run: terraform fmt -check
 
+      # 6. Konfigürasyonu doğrula
+      - name: Terraform Validate
+        run: terraform validate
+
+      # 7. Plan oluştur
       - name: Terraform Plan
-        working-directory: infra           # ← burayı ekle
         run: terraform plan -out=tfplan
+
+      # 8. Plan dosyasını kaydet (inceleme için)
+      - name: Upload tfplan artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: tfplan
+          path: infra/tfplan
